@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+
+<title>An Introduction to Using Distributed File </title>
+
+<script type="text/javascript">
+window.onload = function() {
+  var imgs = document.getElementsByTagName('img'), i, img;
+  for (i = 0; i < imgs.length; i++) {
+    img = imgs[i];
+    // center an image if it is the only element of its parent
+    if (img.parentElement.childElementCount === 1)
+      img.parentElement.style.textAlign = 'center';
+  }
+};
+</script>
+
+
+
+<!-- MathJax scripts -->
+<script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+</script>
+
+
+<style type="text/css">
+body, td {
+   font-family: sans-serif;
+   background-color: white;
+   font-size: 13px;
+}
+
+body {
+  max-width: 800px;
+  margin: auto;
+  padding: 1em;
+  line-height: 20px;
+}
+
+tt, code, pre {
+   font-family: 'DejaVu Sans Mono', 'Droid Sans Mono', 'Lucida Console', Consolas, Monaco, monospace;
+}
+
+h1 {
+   font-size:2.2em;
+}
+
+h2 {
+   font-size:1.8em;
+}
+
+h3 {
+   font-size:1.4em;
+}
+
+h4 {
+   font-size:1.0em;
+}
+
+h5 {
+   font-size:0.9em;
+}
+
+h6 {
+   font-size:0.8em;
+}
+
+a:visited {
+   color: rgb(50%, 0%, 50%);
+}
+
+pre, img {
+  max-width: 100%;
+}
+pre {
+  overflow-x: auto;
+}
+pre code {
+   display: block; padding: 0.5em;
+}
+
+code {
+  font-size: 92%;
+  border: 1px solid #ccc;
+}
+
+code[class] {
+  background-color: #F8F8F8;
+}
+
+table, td, th {
+  border: none;
+}
+
+blockquote {
+   color:#666666;
+   margin:0;
+   padding-left: 1em;
+   border-left: 0.5em #EEE solid;
+}
+
+hr {
+   height: 0px;
+   border-bottom: none;
+   border-top-width: thin;
+   border-top-style: dotted;
+   border-top-color: #999999;
+}
+
+@media print {
+   * {
+      background: transparent !important;
+      color: black !important;
+      filter:none !important;
+      -ms-filter: none !important;
+   }
+
+   body {
+      font-size:12pt;
+      max-width:100%;
+   }
+
+   a, a:visited {
+      text-decoration: underline;
+   }
+
+   hr {
+      visibility: hidden;
+      page-break-before: always;
+   }
+
+   pre, blockquote {
+      padding-right: 1em;
+      page-break-inside: avoid;
+   }
+
+   tr, img {
+      page-break-inside: avoid;
+   }
+
+   img {
+      max-width: 100% !important;
+   }
+
+   @page :left {
+      margin: 15mm 20mm 15mm 10mm;
+   }
+
+   @page :right {
+      margin: 15mm 10mm 15mm 20mm;
+   }
+
+   p, h2, h3 {
+      orphans: 3; widows: 3;
+   }
+
+   h2, h3 {
+      page-break-after: avoid;
+   }
+}
+</style>
+
+
+
+</head>
+
+<body>
+<h1>An Introduction to Using Distributed File </h1>
+
+<h1>Systems and MapReduce through Spark</h1>
+
+<p>Chris Paciorek, Statistical Computing Facility / Department of Statistics and Berkeley Research Computing, UC Berkeley</p>
+
+<p>Presented: April 24, 2015</p>
+
+<p>Last Revised: April 24, 2015</p>
+
+<h1>0) This Tutorial</h1>
+
+<p>The first half of this material covers starting up a Spark virtual cluster on Amazon&#39;s EC2 service, working with the Hadoop distributed file system (HDFS), reading data into spark and basic data processing.</p>
+
+<p>The second half covers fitting basic statistical models, with examples of iterative and non-iterative fitting. We&#39;ll also see the use of Spark for simulation work and batch computation. Time permitting and based on participant interest, we can also have some discussion of what computations would make sense for doing in Spark and comparison with other potential approaches.</p>
+
+<p>Materials for this tutorial, including the R markdown file that was used to create this document are available on github at <code>https://github.com/ucberkeley/ph290-spark-2015-spring</code>.  You can download the files by doing a git clone:</p>
+
+<pre><code class="clone, eval=FALSE">git clone https://github.com/ucberkeley/ph290-spark-2015-spring
+</code></pre>
+
+<p>To create this HTML document, simply compile the corresponding R Markdown file in R:</p>
+
+<pre><code class="bash">Rscript -e &quot;library(knitr); knit2html(&#39;spark.Rmd&#39;)&quot;
+</code></pre>
+
+<!--
+#pandoc --number-sections spark.md -o spark.html
+#Rscript -e "library(knitr); knit('spark.Rmd')"
+#pandoc --mathjax --number-sections spark.md -o spark.html
+-->
+
+<p>To get the airline dataset we&#39;ll be using as a running example, you can download from <a href="http://www.stat.berkeley.edu/share/paciorek/1987-2008.csvs.tgz">this URL</a> or as individual .bz2 files from <code>http://www.stat.berkeley.edu/share/paciorek/{1987,...,2008}.csv.bz2</code>. The demo code later in this document will do the downloading automatically.</p>
+
+<p>There is a version of Spark for R (SparkR, see notes at the end of this document), so if you get the big picture from this but don&#39;t follow all the Python syntax, you should be able to get up to speed on Spark with R fairly quickly.</p>
+
+<p>I&#39;m using the R extension of Markdown for ease of dealing with Latex equations, though it is admittedly a bit strange to use R Markdown for a tutorial that doesn&#39;t involve R. For the most part this could have just been done as a Markdown document.</p>
+
+<h1>1) Introduction</h1>
+
+<h2>1.1) Hadoop, MapReduce, and Spark</h2>
+
+<p>The goal of this tutorial is to introduce Hadoop-style distributed computing for statistical use. We&#39;ll focus on using MapReduce algorithms for data preprocessing and statistical model fitting. We&#39;ll make use of the Hadoop distributed file system (HDFS) for storing data and of Amazon&#39;s EC2 for creating virtual Linux clusters on which to do our computation.</p>
+
+<p>To do all this we&#39;ll be making use of <a href="http://spark.apache.org">Spark</a>, a project out of the AMPLab here at Berkeley that aims to greatly increase the speed of Hadoop MapReduce by keeping data in memory when possible. </p>
+
+<p>Spark allows one to write code in Java, Scala, and Python. We&#39;ll use the Python interface, called PySpark, as Python is more widely known in the Statistics and Economics communities and should be easier to get started with for those who don&#39;t know any of those languages. </p>
+
+<p>I won&#39;t assume knowledge of Python but will assume basic familiarity with operating in UNIX shell and with a scripting languages similar to Python such as R or Matlab. We&#39;ll also make use of some basic concepts of object-oriented programming.</p>
+
+<h2>1.2) Some Cautionary Notes</h2>
+
+<ol>
+<li><p>Since PySpark involves serializing Python objects to pass them to Java, it may be slower than using Java or Scala for your MapReduce code.  Here&#39;s a <a href="http://apache-spark-user-list.1001560.n3.nabble.com/Scala-vs-Python-performance-differences-td4247.html">thread with some info</a>.</p></li>
+<li><p>If you can run your job using the memory and disk space on a single machine, you may be better off doing so, given the overhead involved in working in a distributed fashion.  That said, Spark allows you to scale in a way that would otherwise be difficult.</p></li>
+<li><p>Note that I&#39;ve found the error messages in Spark (and also Hadoop) to be often very hard to understand. Some of this is because the messages are from the underlying Java implementation. So the process of figuring out syntax can be a bit painful at times. As usual, it&#39;s good to start with small test problems and to the extent possible test your Python code does what you expect before using that Python code in a Spark operation. Look carefully for error messages coming from Python that indicate bugs in your Python code.</p></li>
+</ol>
+
+<p>In general, I&#39;m not advocating for you to use MapReduce or Spark. They might or might not be the right tool for your job. But I do think it&#39;s valuable to understand how they work and be able to assess if they would be helpful for a given computation you need to do. </p>
+
+<h2>1.3) Getting Spark running on an EC2-based cluster</h2>
+
+<p>We&#39;ll focus on using the Amazon EC2 tools provided in the Spark software to start up an EC2 cluster with Spark and a distributed file system (the HDFS) already set up.</p>
+
+<p>Note that a detailed set of instructions that mimics those here for starting up and logging into a Spark EC2 cluster are provided in the <em>startSparkVirtualCluster.txt</em> file in the workshop Github repository.</p>
+
+<p>We&#39;ll use the <em>spark-ec2</em> script provided by Spark.  To get the script, download and unzip the source code from the <a href="http://spark.apache.org/downloads.html">Spark downloads page</a>. Select the current release, the &ldquo;Source Code&rdquo; package type and &ldquo;Direct Download&rdquo; and then download the .tgz file. Simply unzip the .tgz file and navigate to the ec2 directory and you&#39;ll find the <code>spark-ec2</code> script there. For this tutorial we&#39;ll be using Spark 1.1.0.</p>
+
+<pre><code class="bash">SPARK_VERSION=1.3.0
+tar -xvzf spark-${SPARK_VERSION}.tgz
+cd spark-${SPARK_VERSION}/ec2
+</code></pre>
+
+<h3>1.3.1) Starting your cluster</h3>
+
+<p>First let&#39;s launch an EC2 cluster. We can choose the number of slave nodes. You&#39;ll need to have the authentication information for your Amazon AWS account as well as have generated an SSH public-private key pair for use with your Amazon account. </p>
+
+<pre><code class="bash">CLUSTER_SIZE=12
+SPARK_VERSION=1.3.0
+REGION=us-west-2
+SSH_KEY_NAME=FILL_IN_NAME_OF_YOUR_SSH_KEY   # e.g., &lt;your_aws_username&gt;@berkeley.edu:spark-workshop-2014
+SSH_KEY_FILENAME=FILL_IN_NAME_OF_YOUR_SSH_KEY_FILENAME  # e.g., spark-workshop-2014-ssh_key.pem
+export AWS_ACCESS_KEY_ID=FILL_IN_YOUR_ACCESS_KEY
+export AWS_SECRET_ACCESS_KEY=FILL_IN_YOUR_SECRET_KEY
+YOUR_NAME=SOME_UNIQUE_NAME_FOR_YOUR_CLUSTER
+cd /usr/local/linux/spark/ec2
+./spark-ec2 -k ${SSH_KEY_NAME} -i ~/.ssh/${SSH_KEY_FILENAME} --region=${REGION} -s ${CLUSTER_SIZE} -v ${SPARK_VERSION} launch sparkvm-${YOUR_NAME}
+</code></pre>
+
+<p>You&#39;ll need to wait for a few minutes (in particular at least the number of seconds indicated above in the WAIT_TIME variable). Look carefully for error messages as sometimes the startup of the nodes and installation of the Spark software does not go smoothly. If all goes well, the end of the messages printed to the screen should look like this:</p>
+
+<pre><code>Setting up security groups...
+Searching for existing cluster sparkvm-${YOUR_NAME}...
+Spark AMI: ami-9a6e0daa
+Launching instances...
+Launched 12 slaves in us-west-2a, regid = r-af7e0ca4
+Launched master in us-west-2a, regid = r-ac7e0ca7
+Waiting for instances to start up...
+Waiting 300 more seconds...
+
+[thousands of lines of information about software installation will scroll by ...]
+
+Shutting down GANGLIA gmond:                               [FAILED]
+Starting GANGLIA gmond:                                    [  OK  ]
+Shutting down GANGLIA gmond:                               [FAILED]
+Starting GANGLIA gmond:                                    [  OK  ]
+Connection to ec2-54-212-54-11.us-west-2.compute.amazonaws.com closed.
+Shutting down GANGLIA gmond:                               [FAILED]
+Starting GANGLIA gmond:                                    [  OK  ]
+Connection to ec2-54-218-203-231.us-west-2.compute.amazonaws.com closed.
+Shutting down GANGLIA gmond:                               [FAILED]
+Starting GANGLIA gmond:                                    [  OK  ]
+Connection to ec2-50-112-80-198.us-west-2.compute.amazonaws.com closed.
+Shutting down GANGLIA gmetad:                              [FAILED]
+Starting GANGLIA gmetad:                                   [  OK  ]
+Stopping httpd:                                            [FAILED]
+Starting httpd:                                            [  OK  ]
+Connection to ec2-54-190-212-116.us-west-2.compute.amazonaws.com closed.
+Spark standalone cluster started at http://ec2-54-190-212-116.us-west-2.compute.amazonaws.com:8080
+Ganglia started at http://ec2-54-190-212-116.us-west-2.compute.amazonaws.com:5080/ganglia
+Done!
+</code></pre>
+
+<p>Also note that I&#39;ve had other glitches in starting up a Spark cluster. You should not get messages about files not found nor should the startup interrupt you to ask you to answer any questions. If either of these happen, something may have gone wrong. </p>
+
+<p>Note that when you want to shut down your cluster (and remember it will cost you money as long as it is running), do the following and make sure to answer &#39;y&#39; when prompted.</p>
+
+<pre><code class="python">./spark-ec2 --region=${REGION} --delete-groups destroy sparkvm-${YOUR_NAME}
+</code></pre>
+
+<p>If you want to see some of the various options and actions possible with the spark-ec2 script just do:</p>
+
+<pre><code class="python">./spark-ec2
+</code></pre>
+
+<h3>1.3.2) Navigating around your cluster</h3>
+
+<p>First we&#39;ll login to the master node of our cluster.</p>
+
+<pre><code class="bash">./spark-ec2 -k ${SSH_KEY_NAME} -i ~/.ssh/${SSH_KEY_FILENAME} --region=${REGION} login sparkvm-${YOUR_NAME}
+</code></pre>
+
+<p>You could also login directly with ssh provided you notice the IP address of your master in the startup messages or on the AWS EC2 webpage for your AWS account:</p>
+
+<pre><code class="python">ssh -i ~/.ssh/${SSH_KEY_FILENAME} root@ec2-54-71-181-49.us-west-2.compute.amazonaws.com
+</code></pre>
+
+<p>Note that Spark expects you to be the root user so we&#39;ll do everything as root. Since this is a virtual cluster that we can shut down whenever we want, this isn&#39;t as dangerous as it would be with a regular computer.</p>
+
+<p>Sometimes your connection might be interrupted and you&#39;ll lose your work, so you may want to run your work on the master node using the UNIX <em>screen</em> program:</p>
+
+<pre><code class="bash">screen -x -RR
+</code></pre>
+
+<p>Once on the master, the addresses of the slave nodes are given in <code>/root/ephemeral-hdfs/conf/slaves</code>. You can choose one of them and ssh to it using the address. Then tools such as <code>top</code> will allow you to see what is going on on the machine. </p>
+
+<p>Spark provides graphical interfaces that allow you to view the status of the system. Open a browser on your local machine. You&#39;ll need the IP address (I&#39;ll call this <code>&lt;master_url&gt;</code> below) stored in <code>/root/ephemeral-hdfs/conf/masters</code> on the master node.  Here are the web interfaces you might take a look at:</p>
+
+<ol>
+<li><code>http://&lt;master_url&gt;:8080</code> &ndash; general information about the Spark cluster</li>
+<li><code>http://&lt;master_url&gt;:4040</code> &ndash; information about the Spark tasks being executed</li>
+<li><code>http://&lt;master_url&gt;:50070</code> &ndash; information about the HDFS</li>
+</ol>
+
+<h3>1.3.3) Getting data onto your cluster and onto the HDFS</h3>
+
+<p>Here are some options. </p>
+
+<h4>Copying to the master node followed by copying to the HDFS</h4>
+
+<p>You can use <code>scp</code> to copy files to the master node. The easiest thing is to be logged onto the master node and scp from your local machine to the master. But you can also use the IP address from <code>/root/ephemeral-hdfs/conf/masters</code> to scp from your local machine to the master, making sure to use the <code>-i ~/.ssh/${SSH_KEY_FILENAME}</code> flag to point to your private key. </p>
+
+<p>We&#39;ll copy the ASA Data Expo Airline dataset:</p>
+
+<pre><code class="bash">mkdir /mnt/airline
+cd /mnt/airline
+wget http://www.stat.berkeley.edu/share/paciorek/1987-2008.csvs.tgz
+tar -xvzf 1987-2008.csvs.tgz
+</code></pre>
+
+<p>Note that transfer to your cluster is free, but transfer from your cluster can be expensive. Campus is setting up a portal to AWS to greatly reduce that cost. Email <a href="mailto:consult@stat.berkeley.edu">consult@stat.berkeley.edu</a> or <a href="mailto:consult@econ.berkeley.edu">consult@econ.berkeley.edu</a> for more information. </p>
+
+<p>Once you have files on the master you can set up directories in the HDFS as desired and copy the dataset onto the HDFS as follows. Often your dataset will be a collection of (possibly zipped) plain text files, such as CSVs. You don&#39;t need to unzip the files - Spark can read data from zipped files.</p>
+
+<pre><code class="bash">export PATH=$PATH:/root/ephemeral-hdfs/bin/
+hadoop fs -mkdir /data/airline
+hadoop fs -copyFromLocal /mnt/airline/*bz2 /data/airline
+hadoop fs -ls /data/airline
+</code></pre>
+
+<p>Note that the commands to interact with the HDFS are similar to UNIX commands (<code>mkdir</code>, <code>ls</code>, etc.) but they must follow the <code>hadoop fs -</code> syntax.</p>
+
+<p>Note that in general you want your dataset to be split into multiple chunks but not so many that each chunk is tiny (HDFS has trouble when there are millions of files &ndash; see <a href="http://blog.cloudera.com/blog/2009/02/the-small-files-problem/">this explanation</a>, nor so few that the dataset can&#39;t be distributed across the nodes of the distributed file system or cannot be distributed roughly equally in size across the nodes. However, in terms of the latter issues, one can &ldquo;repartition&rdquo; the data in Spark.  </p>
+
+<p>If you&#39;ve done some operations and created a dataset (called <em>airline-sfo</em> here) on the HDFS that you want to transfer back to the master node, you can do the following. Note that this may give you back a dataset broken into pieces (one per Spark partition) so you may need to use UNIX tools to combine into one file.</p>
+
+<pre><code class="bash">hadoop fs -copyToLocal /data/airline-sfo /mnt/airline-sfo
+</code></pre>
+
+<h4>Copying directly from Amazon&#39;s S3</h4>
+
+<p>If the files are stored on Amazon&#39;s S3, you can copy directly onto the HDFS. Here&#39;s how, using the Google ngrams dataset as an example. Note that we need Hadoop&#39;s MapReduce processes running to do this distributed copy operation and Spark does not start these by default. (For doing MapReduce within Spark, we do NOT need to do this.)</p>
+
+<pre><code class="bash"># start MapReduce processes
+/root/ephemeral-hdfs/bin/start-mapred.sh
+hadoop fs -mkdir /data/ngrams
+hadoop distcp -D fs.s3n.awsAccessKeyId=&quot;&lt;AWS_ACCESS_KEY_ID&gt;&quot; -D fs.s3n.awsSecretAccessKey=&quot;&lt;AWS_SECRET_ACCESS_KEY&gt;&quot; \
+   s3n://datasets.elasticmapreduce/ngrams/books/20090715/eng-us-all/1gram hdfs:///data/ngrams
+</code></pre>
+
+<p>You&#39;ll need to use your AWS account information in place of the <code>&lt;AWS_ACCESS_KEY_ID&gt;</code> and <code>&lt;AWS_SECRET_ACCESS_KEY&gt;</code> strings here. Also check to see whether you need &ldquo;s3&rdquo; or &ldquo;s3n&rdquo; for the dataset you are interested in. Also, you may want to see if the dataset is stored in a particular AWS region as this may incur additional charges to transfer across regions. If so you may want to start up your cluster in the region in which the data reside. </p>
+
+<h1>2) Using Spark</h1>
+
+<p>Ok, now we&#39;re in a position to do computations with Spark. </p>
+
+<p>We can run PySpark in the form of a Python command line interpreter session or in batch mode to run the code from a PySpark/Python code file. </p>
+
+<p>Before you do so, if you plan to use numpy, make sure you do the following. There is a (new) glitch in the EC2 setup that Spark provides and numpy is not installed on the version of Python that Spark uses (Python 2.7). To install numpy on both the master and worker nodes, do the following as root on the master node.</p>
+
+<pre><code class="bash">wget https://bootstrap.pypa.io/get-pip.py
+python27 get-pip.py
+yum install python27-devel
+pip2.7 install numpy
+/root/spark-ec2/copy-dir /usr/local/lib64/python2.7/site-packages/numpy
+</code></pre>
+
+<p>To start PySpark in an interactive session, we do this</p>
+
+<pre><code class="bash">export PATH=${PATH}:/root/spark/bin
+pyspark
+</code></pre>
+
+<h2>2.1) Background</h2>
+
+<p>Spark is AMPLab&#39;s effort to create a version of Hadoop that uses memory as much as possible to reduce the speed of computation, particularly for iterative computations. So in addition to the distributed file system, you can think of Spark as providing you with access to distributed memory - the collective memory of all of the nodes in your cluster. However, that memory is still physically separated so you&#39;re not operating as if you had a single machine. But the abstractions provided by Spark allow you to do a lot of computations that would be a pain to program yourself even with access to a cluster and use of something like MPI for passing messages between machines. </p>
+
+<h2>2.2) Reading data into Spark and doing basic manipulations</h2>
+
+<h3>2.2.1) Reading data into Spark</h3>
+
+<h4>Reading from HDFS</h4>
+
+<p>First we&#39;ll see how to read data into Spark from the HDFS and do some basic manipulations of the data.</p>
+
+<pre><code class="python">lines = sc.textFile(&#39;/data/airline&#39;)
+lines.count()
+</code></pre>
+
+<p>The <code>textFile()</code> method reads the data from the airline directory, dealing with the compression and with the various files that data is split into. </p>
+
+<p>Note that the first line seems to take no time at all. That is because Spark uses <strong>lazy evaluation</strong>, delaying evaluation of code until it needs to actually produce a result. So sometimes it can be hard to figure out how long each piece of a calculation takes because multiple pieces are being combined together. I&#39;ll sometimes do a <code>count()</code> just to force the evaluation of the previous command.  Transformations such as <code>map()</code> and <code>reduce()</code> do not trigger evaluation but actions such as <code>count()</code>, <code>collect()</code>, and <code>saveAsTextFile()</code> do.  Note also that serialization between Java and Python objects only occurs at barriers defined by actions, so if you have a series of transformations, you shouldn&#39;t incur repeated serialization.</p>
+
+<p>You should see a bunch of logging messages that look like this:</p>
+
+<pre><code>14/10/31 01:15:53 INFO mapred.FileInputFormat: Total input paths to process : 22
+14/10/31 01:15:53 INFO spark.SparkContext: Starting job: count at &lt;stdin&gt;:1
+14/10/31 01:15:53 INFO scheduler.DAGScheduler: Got job 3 (count at &lt;stdin&gt;:1) with 22 output partitions (allowLocal=false)
+14/10/31 01:15:53 INFO scheduler.DAGScheduler: Final stage: Stage 3(count at &lt;stdin&gt;:1)
+14/10/31 01:15:53 INFO scheduler.DAGScheduler: Parents of final stage: List()
+14/10/31 01:15:53 INFO scheduler.DAGScheduler: Missing parents: List()
+14/10/31 01:15:53 INFO scheduler.DAGScheduler: Submitting Stage 3 (PythonRDD[16] at RDD at PythonRDD.scala:43), which has no missing parents
+14/10/31 01:15:53 INFO storage.MemoryStore: ensureFreeSpace(5128) called with curMem=273374, maxMem=278302556
+14/10/31 01:15:53 INFO storage.MemoryStore: Block broadcast_9 stored as values in memory (estimated size 5.0 KB, free 265.1 MB)
+14/10/31 01:15:53 INFO storage.MemoryStore: ensureFreeSpace(3265) called with curMem=278502, maxMem=278302556
+14/10/31 01:15:53 INFO storage.MemoryStore: Block broadcast_9_piece0 stored as bytes in memory (estimated size 3.2 KB, free 265.1 MB)
+14/10/31 01:15:53 INFO storage.BlockManagerInfo: Added broadcast_9_piece0 in memory on ip-10-225-185-17.us-west-2.compute.internal:54745 (size: 3.2 KB, free: 265.4 MB)
+14/10/31 01:15:53 INFO storage.BlockManagerMaster: Updated info of block broadcast_9_piece0
+14/10/31 01:15:53 INFO scheduler.DAGScheduler: Submitting 22 missing tasks from Stage 3 (PythonRDD[16] at RDD at PythonRDD.scala:43)
+14/10/31 01:15:53 INFO scheduler.TaskSchedulerImpl: Adding task set 3.0 with 22 tasks
+14/10/31 01:15:53 INFO scheduler.TaskSetManager: Starting task 0.0 in stage 3.0 (TID 6, ip-10-249-30-169.us-west-2.compute.internal, NODE_LOCAL, 1243 bytes)
+14/10/31 01:15:53 INFO scheduler.TaskSetManager: Starting task 5.0 in stage 3.0 (TID 7, ip-10-249-65-147.us-west-2.compute.internal, NODE_LOCAL, 1243 bytes)
+14/10/31 01:15:53 INFO scheduler.TaskSetManager: Starting task 1.0 in stage 3.0 (TID 8, ip-10-249-62-60.us-west-2.compute.internal, NODE_LOCAL, 1243 bytes)
+14/10/31 01:15:53 INFO scheduler.TaskSetManager: Starting task 12.0 in stage 3.0 (TID 9, ip-10-249-14-81.us-west-2.compute.internal, NODE_LOCAL, 1243 bytes)
+14/10/31 01:15:53 INFO scheduler.TaskSetManager: Starting task 2.0 in stage 3.0 (TID 10, ip-10-249-14-142.us-west-2.compute.internal, NODE_LOCAL, 1243 bytes)
+14/10/31 01:15:53 INFO scheduler.TaskSetManager: Starting task 8.0 in stage 3.0 (TID 11, ip-10-249-71-5.us-west-2.compute.internal, NODE_LOCAL, 1243 bytes)
+14/10/31 01:15:53 INFO scheduler.TaskSetManager: Starting task 3.0 in stage 3.0 (TID 12, ip-10-249-25-57.us-west-2.compute.internal, NODE_LOCAL, 1243 bytes)
+14/10/31 01:15:53 INFO scheduler.TaskSetManager: Starting task 6.0 in stage 3.0 (TID 13, ip-10-226-152-67.us-west-2.compute.internal, NODE_LOCAL, 1243 bytes)
+14/10/31 01:15:53 INFO scheduler.TaskSetManager: Starting task 9.0 in stage 3.0 (TID 14, ip-10-226-142-5.us-west-2.compute.internal, NODE_LOCAL, 1243 bytes)
+14/10/31 01:15:53 INFO scheduler.TaskSetManager: Starting task 11.0 in stage 3.0 (TID 15, ip-10-249-31-110.us-west-2.compute.internal, NODE_LOCAL, 1243 bytes
+...
+...
+14/10/31 01:15:54 INFO storage.BlockManagerInfo: Added broadcast_8_piece0 in memory on ip-10-249-71-5.us-west-2.compute.internal:49964 (size: 4.7 KB, free: 3.1 GB)
+14/10/31 01:15:54 INFO storage.BlockManagerInfo: Added broadcast_8_piece0 in memory on ip-10-249-25-57.us-west-2.compute.internal:37497 (size: 4.7 KB, free: 3.1 GB)
+14/10/31 01:15:54 INFO storage.BlockManagerInfo: Added broadcast_8_piece0 in memory on ip-10-249-62-60.us-west-2.compute.internal:56086 (size: 4.7 KB, free: 3.1 GB)
+14/10/31 01:15:57 INFO scheduler.TaskSetManager: Starting task 19.0 in stage 3.0 (TID 27, ip-10-249-31-110.us-west-2.compute.internal, ANY, 1243 bytes)
+14/10/31 01:16:14 INFO scheduler.TaskSetManager: Finished task 0.0 in stage 3.0 (TID 6) in 21020 ms on ip-10-249-30-169.us-west-2.compute.internal (1/22)
+14/10/31 01:16:29 INFO scheduler.TaskSetManager: Finished task 4.0 in stage 3.0 (TID 17) in 35919 ms on ip-10-249-15-15.us-west-2.compute.internal (2/22)
+14/10/31 01:16:31 INFO scheduler.TaskSetManager: Finished task 9.0 in stage 3.0 (TID 14) in 38311 ms on ip-10-226-142-5.us-west-2.compute.internal (3/22)
+14/10/31 01:16:37 INFO scheduler.TaskSetManager: Finished task 7.0 in stage 3.0 (TID 18) in 43942 ms on ip-10-249-30-169.us-west-2.compute.internal (4/22)
+14/10/31 01:16:55 INFO scheduler.TaskSetManager: Finished task 2.0 in stage 3.0 (TID 10) in 62229 ms on ip-10-249-14-142.us-west-2.compute.internal (5/22)
+...
+</code></pre>
+
+<p>There are 22 tasks because there are 22 data files. Each task is done as a single process on one of the nodes. </p>
+
+<p>You should see there are about 123 million observations (rows) in the dataset (the dataset is an <em>RDD</em> object). More on RDDs in a bit.</p>
+
+<h4>What if the data are not one-line-per-row?</h4>
+
+<p>You can read in each file as an individual observation using <code>wholeTextFiles()</code>.</p>
+
+<p>You can use <code>flatMap()</code> if each row contains multiple observations.</p>
+
+<h4>Reading into Spark from S3</h4>
+
+<p>If we wanted to read directly into Spark from S3 (again checking if we need s3 or s3n), we can do something like this, here reading the Google n-grams word co-occurrence dataset:</p>
+
+<pre><code class="python">lines = sc.textFile(&quot;s3n://&lt;AWS_ACCESS_KEY_ID&gt;:&lt;AWS_SECRET_ACCESS_KEY&gt;@datasets.elasticmapreduce/ngrams/books/20090715/eng-us-all/1gram&quot;)
+</code></pre>
+
+<p>Note the &ldquo;:&rdquo; to separate the two parts of your AWS credential information.  That was to read from a set of files but you could also point to a specific individual file. And you may be able to use wildcards.</p>
+
+<p>Note that if either of your AWD credential strings has a &ldquo;/&rdquo; in it, that can cause problems because it will be interpreted as a file path separator (&ldquo;:&rdquo; would probably also cause similar problems). As an alternative, you can add your credentials in the following format as lines in the  <code>/root/ephemeral-hdfs/conf/core-site.xml</code> configuration file.</p>
+
+<pre><code>&lt;property&gt;
+  &lt;name&gt;fs.s3n.awsAccessKeyId&lt;/name&gt;
+  &lt;value&gt;YOUR_AWS_ACCESS_KEY_ID&lt;/value&gt;
+&lt;/property&gt;
+&lt;property&gt;
+  &lt;name&gt;fs.s3n.awsSecretAccessKey&lt;/name&gt;
+  &lt;value&gt;YOUR_AWS_SECRET_ACCESS_KEY&lt;/value&gt;
+&lt;/property&gt;
+</code></pre>
+
+<p>In that case you would just do:</p>
+
+<pre><code class="python">lines = sc.textFile(&quot;s3n://datasets.elasticmapreduce/ngrams/books/20090715/eng-us-all/1gram&quot;)
+</code></pre>
+
+<p>The Google ngrams data is somewhat big so that may take a while. To test that things are working, try this test file:</p>
+
+<pre><code class="python">lines = sc.textFile(&quot;s3n://&lt;AWS_ACCESS_KEY_ID&gt;:&lt;AWS_SECRET_ACCESS_KEY&gt;@berkeley-scf-test/test/2009_nfl_pbp_data.csv&quot;) 
+lines.count()
+</code></pre>
+
+<p>You should get that there are 43064 lines.</p>
+
+<p>To get a directory of files rather than a single file you should be able to give a directory name, and I think wildcards are also allowed to indicate multiple files.</p>
+
+<h4>Repartitioning the input</h4>
+
+<p>To better distribute the data across the nodes, I&#39;m going to repartition the dataset into more than 22 chunks.</p>
+
+<pre><code class="python">lines = sc.textFile(&#39;/data/airline&#39;).repartition(192).cache()
+</code></pre>
+
+<p>And I also &ldquo;cached&rdquo; the RDD so that it is retained in memory for later processing steps.</p>
+
+<p>We&#39;ll come back to both of these ideas in a bit.</p>
+
+<h3>2.2.2) Subsetting in Spark</h3>
+
+<p>The next thing we could do is subset the dataset using the <code>filter()</code> method. Here&#39;s an example:</p>
+
+<pre><code class="python">sfo_lines = lines.filter(lambda line: &quot;SFO&quot; in line.split(&#39;,&#39;)[16]).cache()
+sfo_lines.count()
+</code></pre>
+
+<p>The filtering function (in this case my anonymous (lambda) function) should produce a single boolean. I could have used a named function here too.</p>
+
+<p>There are 2373910 observations corresponding to flights from SFO.</p>
+
+<p>Note that the processing here shows 192 tasks, corresponding to the now 192 partitions.</p>
+
+<h3>2.2.3) Extracting data from an RDD</h3>
+
+<p>If the subset is sufficiently small we can pull it into Python as a standard Python object in the PySpark/Python session on our master node.</p>
+
+<pre><code class="python">sfo = sfo_lines.collect()
+type(sfo) 
+# &lt;type &#39;list&#39;&gt;
+len(sfo) 
+# 2733910
+sfo[1] # but remember Python indexing starts at 0 
+# u&#39;1992,1,2,4,708,705,1243,1222,US,1118,NA,215,197,NA,21,3,SFO,MCI,1499,NA,NA,0,NA,0,NA,NA,NA,NA,NA&#39;
+</code></pre>
+
+<p>Or I could save the subset as a new HDFS dataset that I could transfer back to the standard filesystem on the master using the HDFS <code>copyToLocal</code> command from the UNIX prompt on the master node.</p>
+
+<pre><code class="python">sfo_lines.saveAsTextFile(&#39;/data/airline-sfo&#39;)
+</code></pre>
+
+<h3>2.2.4) Stratifying in Spark</h3>
+
+<p>Now suppose I want to use Spark to do some stratification. Here&#39;s a very basic stratification. We&#39;ll do it using MapReduce.</p>
+
+<p>I&#39;m going to group by departure/arrival airport pairs and then count the number of flights. I&#39;ll use a mapper, <code>createKeyValue()</code>, to create key-value pairs where the key is the route and the value is just a 1 and then I do a reduction, stratifying by key, where I simply count the records associated with each key by using <code>add</code> as the reduce function. In Python, the key-value pairs are just a 2-element tuple (I think a 2-element list would be fine), but the value could be arbitrarily more complicated than the scalar quantity 1 that I use here. </p>
+
+<pre><code class="python">from operator import add
+
+def createKeyValue(line):
+    vals = line.split(&#39;,&#39;)
+    return(vals[16]+&#39;-&#39;+vals[17], 1)
+
+routeCount = lines.map(createKeyValue).reduceByKey(add).collect()
+
+mx = routeCount[0]
+for i in xrange(len(routeCount)):
+     if routeCount[i][1] &gt; mx[1]:
+        mx = routeCount[i]
+</code></pre>
+
+<p>Any guesses about the route with the most flights?</p>
+
+<p>I wrote that as presented above to illustrate key-value pairs and using a map-reduce pair of functions, but for simply counting, I could have done it more efficiently like this:</p>
+
+<pre><code>routeCount2 = lines.map(createKeyValue).countByKey()
+</code></pre>
+
+<p>Note that the result is a dictionary not a list.</p>
+
+<h3>2.2.5) Getting a few elements for inspection and debugging</h3>
+
+<p>One useful thing is to be able to grab a single element or a few elements from an Spark dataset. This allows us to look at the structure of units in the dataset and test our code by applying our Python functions directly to the units.</p>
+
+<pre><code>oneLine = lines.take(1)
+# test my createKeyValue() function:
+createKeyValue(oneLine)
+createKeyValue(oneLine[0])
+keyValues = lines.map(createKeyValue).cache()
+twoKeyValues = keyValues.take(2)
+twoKeyValues
+# [(u&#39;AVP-PIT&#39;, 1), (u&#39;LAX-IND&#39;, 1)]
+twoKeyCounts = keyValues.reduceByKey(add).take(2)
+# [(u&#39;ORD-SEA&#39;, 101949), (u&#39;MCI-MSY&#39;, 925)]
+</code></pre>
+
+<p>Make sure you know what kind of Python object is in use for each observation in the RDD - originally it&#39;s often just a text line from CSV, but after mapping it would often be a tuple or a list. It&#39;s good to check your code on individual elements or pairs of elements from the RDD obtained via <code>take()</code>. Note that sometimes things will be embedded in a list and you&#39;ll need to burrow into it as seen in the example where we had a list of length one containing the string.</p>
+
+<h2>2.3) Some fundamental ideas in MapReduce and Spark</h2>
+
+<p>Now that we&#39;ve seen a few example computations, let&#39;s step back and discuss a few concepts.</p>
+
+<h3>2.3.1) RDDs</h3>
+
+<p>Spark datasets are called Resilient Distributed Datasets (RDDs). Spark operations generally take the form of a method applied to an RDD object and the methods can be chained together, as we&#39;ve already seen. </p>
+
+<p>Note also the <em>sc</em> object we used for reading from the HDFS was a <em>SparkContext</em> object that encapsulates information about the Spark setup. The <code>textfile()</code> function is a method used with SparkContext objects.</p>
+
+<h3>2.3.2) Caching</h3>
+
+<p>Spark by default will try to manipulate RDDs in memory if they fit in the collective memory of the nodes. You can tell Spark that a given RDD should be kept in memory so that you can quickly access it later by using the <code>cache()</code> method. To see the RDDs that are cached in memory, go to <code>http://&lt;master_url&gt;:4040</code> and click on the &ldquo;Storage&rdquo; tab.</p>
+
+<p>If an RDD won&#39;t fit in memory, Spark will recompute it as needed, but this will involve a lot of additional computation. In some (but not all) cases in which there is not enough collective memory you may want it cached on disk. The <a href="http://spark.apache.org/docs/latest/programming-guide.html#rdd-persistence">Spark programming guide</a> has more information.</p>
+
+<h3>2.3.3) Partitions and repartitioning</h3>
+
+<p>The number of chunks your dataset is broken into can greatly impact computational efficiency. When a map function is applied to the RDD, the work is broken into one task per partition. </p>
+
+<p>You want each partition to be able to fit in the memory availalbe on a node, and if you have multi-core nodes, you want that as many partitions as there are cores be able to fit in memory.</p>
+
+<p>For load-balancing you&#39;ll want at least as many partitions as total computational cores in your cluster and probably rather more partitions. The Spark documentation suggests 2-4 partitions (which they also seem to call <em>slices</em>) per CPU. Often there are 100-10,000 partitions. Another rule of thumb is that tasks should take at least 100 ms. If less than that, you may want to repartition to have fewer partitions.</p>
+
+<p>As an example that we&#39;ve already seen, the original airline dataset is in 22 partitions, one per input CSV file, and those partitions are different sizes because the data size varies by year. So it&#39;s a good idea to repartition the dataset as you&#39;re doing your initial manipulations on it, as we did above. But it did take a while to do that because of all the transferring of data across nodes.</p>
+
+<h3>2.3.4) MapReduce</h3>
+
+<p>MapReduce is a sort of meta-algorithm. If you can write your algorithm/computation as a MapReduce algorithm, then you should be able to implement it in Spark or in standard Hadoop, including Amazon&#39;s Elastic MapReduce framework. </p>
+
+<p>The basic idea is that your computation be written as a one or more iterations over a <em>Map</em> step and a <em>Reduce</em> step. The map step takes each &#39;observation&#39; (each unit that can be treated independently) and applies some transformation to it. Think of a mathematical mapping. The reduction step then takes the results and does some sort of aggregation operation that returns a summary measure. Sometimes the mapping step involves computing a key for each unit. The units that share the same key are then collected together and a reduction step may be done for each key value. </p>
+
+<p>Actually, it&#39;s more general than that. We may have multiple map steps before any reduction or no reduction at all. Also <code>reduceByKey()</code> returns an RDD, so there could potentially be multiple reductions. </p>
+
+<p>Reduction functions should be associative and commutative. It shouldn&#39;t matter what order the operations are done in or which observations are grouped with which others in order that the reduction can be done in parallel in a simple fashion.</p>
+
+<p>We&#39;ll see a variety of MapReduce algorithms here so this should become more concrete. </p>
+
+<p>In addition to map and reduce steps, we can explicitly pass shared data to all the nodes via a broadcast step. Broadcast variables allow the programmer to keep a read-only variable cached on each machine rather than shipping a copy of it with tasks. They can be used, for example, to give every node a copy of a large input dataset in an efficient manner. </p>
+
+<h2>2.4) Additional data processing in Spark</h2>
+
+<p>Now let&#39;s do some aggregation/summarization calculations. One might do this sort of thing in the process of reducing down a large dataset to some summary values on which to do the core analysis.</p>
+
+<p>First we&#39;ll do some calculations involving sums/means that naturally fit within a MapReduce paradigm and then we&#39;ll do a median calculation, which is not associative and commutative so is a bit harder and wouldn&#39;t scale well. </p>
+
+<h3>2.4.1) Calculating means as a simple MapReduce task</h3>
+
+<p>Here we&#39;ll compute the mean departure delay by airline-month-origin-destination sets. So we&#39;ll create a compound key and then do reduction separately for each key value (stratum). </p>
+
+<p>Our map function will exclude missing data and the header &#39;observations&#39;.</p>
+
+<pre><code class="python">def mapper(line):
+    vals = line.split(&#39;,&#39;)
+    key = &#39;-&#39;.join([vals[x] for x in [8,1,16,17]])
+    if vals[0] == &#39;Year&#39; or vals[14] == &#39;NA&#39;:
+       key = &#39;0&#39;
+       delay = 0.0
+       valid = 0.0
+    else: 
+       delay = float(vals[14])
+       valid = 1.0
+    return(key, (delay, valid))
+
+
+def reducer( (dep1, valid1), (dep2, valid2) ):
+    return( (dep1 + dep2), (valid1 + valid2) )
+
+mappedLines = lines.map(mapper).cache()
+tmp = mappedLines.reduceByKey(reducer)
+tmp
+# PythonRDD[11] at RDD at PythonRDD.scala:43
+results = tmp.collect()
+results[0:3]  
+# [(u&#39;EA-11-ATL-DEN&#39;, (1531.0, 265.0)), (u&#39;NW-11-MSP-SDF&#39;, (3290.0, 882.0)), (u&#39;DL-9-SEA-JFK&#39;, (5301.0, 577.0))]
+means = [(val[0], val[1][0]/val[1][1]) for val in results if val[1][1] &gt; 0.0]
+means[0:3]
+# [(u&#39;EA-11-ATL-DEN&#39;, 5.777358490566038), (u&#39;NW-11-MSP-SDF&#39;, 3.7301587301587302), (u&#39;DL-9-SEA-JFK&#39;, 9.1871750433275565)]
+
+</code></pre>
+
+<p>Note that the result of the <code>reduceByKey()</code> is just another (small) RDD.</p>
+
+<p>Note that we wrote our own reduce function because Python lists/tuples don&#39;t add in a vectorized fashion so we couldn&#39;t just use <code>operator.add()</code>, but if we had made the values in the key-value pairs to be <em>numpy</em> arrays we could have just done <code>reduceByKey(add)</code>. </p>
+
+<h3>2.4.2) Calculating medians as a non-standard MapReduce task</h3>
+
+<p>This will be more computationally intensive because we don&#39;t have an associative and commutative function for reduction. Instead we need all the values for a given key to calculate the summary statistic of interest. So we use <code>groupByKey()</code> and then apply the median function to the RDD where each key has as its value the entire set of values for that key from the mapper. I suspect that Spark/Hadoop experts would frown on what I do here as it wouldn&#39;t scale as the strata sizes increase, but it seems fairly effective for these sizes of strata.</p>
+
+<pre><code class="python">def medianFun(input):
+    import numpy as np
+    if len(input) == 2:
+        if len(input[1]) &gt; 0:
+            med = np.median([val[0] for val in input[1] if val[1] == 1.0])
+            return((input[0], med))
+        else:
+            return((input[0], -999))
+    else:
+        return((input[0], -9999))
+
+output = mappedLines.groupByKey()
+output.count()
+# 186116
+medianResults = output.map(medianFun).collect()
+medianResults[0:3]
+# [(u&#39;EA-11-ATL-DEN&#39;, 0.0), (u&#39;NW-11-MSP-SDF&#39;, -3.0), (u&#39;DH-8-HPN-ORD&#39;, -7.0)]
+
+# here&#39;s code to show the iterable object produced by groupByKey()
+dat = output.take(1)
+dat[0][0]
+len(dat[0][1])
+[val for val in dat[0][1]]
+</code></pre>
+
+<p>Note that the median calculation is another map function not a reduce, because it&#39;s just a 1-1 transformation of the RDD that is returned by <code>groupByKey()</code>. But of course the size of the value associated with each key is much larger before the application of the <code>medianFun()</code> map step.</p>
+
+<h3>2.4.3) Stratifying data and exporting</h3>
+
+<p>Now suppose we wanted to create multiple datasets, one per stratum. This does not fit all that well into the MapReduce/HDFS paradigm. We could loop through the unique values of the stratifying variable using <code>filter()</code> and <code>saveAsTextFile()</code> as seen above. There are not really any better ways to do this. In previous tries, I used <code>sortByKey()</code> first and that improved speed but I&#39;ve been running into errors recently when doing that, with Spark losing access to some of the worker tasks (executors). Here I&#39;ll stratify by departure airport.</p>
+
+<pre><code class="python">def createKeyValue(line):
+    vals = line.split(&#39;,&#39;)
+    keyVal = vals[16]
+    return(keyVal, line)
+
+keyedLines = lines.map(createKeyValue).cache()
+
+keys = keyedLines.countByKey().keys()
+
+for curkey in keys:
+    fn = &#39;/data/&#39; + curkey
+    keyedLines.filter(lambda x: curkey == x[0]).map(lambda x: x[1]).repartition(1).saveAsTextFile(fn)
+</code></pre>
+
+<p>The <code>repartition(1)</code> ensures that the entire RDD for a given key is on a single partition so that we get a single file for each stratum instead of having each stratum split into pieces across the different nodes hosting the HDFS. The mapper simply pulls out the value for each key-value pair, discarding the key. </p>
+
+<h2>2.5) Doing simulation via a simple MapReduce calculation</h2>
+
+<p>We&#39;ll do a simulation to estimate the value of \(\pi\) as an embarrassingly parallel calculation using MapReduce.</p>
+
+<p>Here&#39;s the Python code</p>
+
+<pre><code class="python">import numpy.random as rand
+from operator import add
+
+samples_per_slice = 1000000
+num_cores = 24
+num_slices = num_cores * 20
+
+def sample(p):
+    rand.seed(p)
+    x, y = rand.random(samples_per_slice), rand.random(samples_per_slice)
+    return sum(x*x + y*y &lt; 1)
+
+count = sc.parallelize(xrange(0, num_slices), num_slices).map(sample).reduce(add)
+print &quot;Pi is roughly %f&quot; % (4.0 * count / (num_slices*samples_per_slice))
+</code></pre>
+
+<p>Let&#39;s piece that apart. The <code>parallelize()</code> call basically takes the numbers {0,1,2,&hellip;,num_slices-1} and treats them as the input &ldquo;dataset&rdquo;. These are the initial units and then the transformation (the mapper) is to do the random number generation and compute the partial sum. The second argument to <code>parallelize()</code> indicates how many partitions to create, so this will correspond to the number of tasks that will be carried out in a subsequent map step. Using <code>paralllelize()</code> to create an RDD from an existing Python list is another way to create an RDD, in addition to reading data from an external storage system such as the HDFS.</p>
+
+<p>A few comments here. First we could have sampled a single random vector, thereby calling <code>parallelize()</code> across numslices*samples_per_slice, with one task per {x,y} pair. But it&#39;s much more computationally efficient to do a larger chunk of calculation in each process since there is overhead in running each process. But we want enough processes to make use of all the processors collectively in our Spark cluster and probably rather more than that in case some processors do the computation more slowly than others. Also, if the computation involved a large amount of memory we wouldn&#39;t want to exceed the physical RAM available to the processes that work simultaneously on a node. However, we also don&#39;t want too many tasks. For example, if we try to have as many as 50 million parallel tasks, Spark will hang. Somehow the overhead in creating that many tasks is too great, though I need to look further for a complete explanation.</p>
+
+<h2>2.6) Random number generation in parallel</h2>
+
+<p>A basic approach to deal with parallel random number generation (RNG) is to set  the seed based on the task id, e.g., passed in via <code>parallelize()</code> above.  This doesn&#39;t guarantee that the random number streams for the different tasks will not overlap, but it should be unlikely. Unfortunately Python does not provide the L&#39;Ecuyer algorithm, or other algorithms to ensure non-overlapping streams, unlike R and Matlab.</p>
+
+<h2>2.7) Using PySpark in batch (non-interactive mode)</h2>
+
+<p>We can also do that calculation as a batch job.</p>
+
+<p>Here&#39;s the code in the file <em>piCalc.py</em>:</p>
+
+<pre><code class="python">import sys
+import numpy.random as rand
+from operator import add
+from pyspark import SparkContext
+if __name__ == &quot;__main__&quot;:
+    if len(sys.argv) != 3:
+        print &gt;&gt; sys.stderr, &quot;Usage: spark-submit piCalc.py &lt;total_samples&gt; &lt;slices&gt;&quot;
+        exit(-1)
+    sc = SparkContext() 
+    total_samples = int(sys.argv[1]) if len(sys.argv) &gt; 1 else 1000000
+    num_slices = int(sys.argv[2]) if len(sys.argv) &gt; 2 else 2
+    samples_per_slice = round(total_samples / num_slices)
+
+    def sample(p):
+        rand.seed(p)
+        x, y = rand.random(samples_per_slice), rand.random(samples_per_slice)
+        return sum(x*x + y*y &lt; 1)
+
+    count = sc.parallelize(xrange(0, num_slices), num_slices).map(sample).reduce(add)
+    print &quot;Pi is roughly %f&quot; % (4.0 * count / (num_slices*samples_per_slice))
+
+</code></pre>
+
+<p>Note that by starting Python via PySpark, the <em>sc</em> object is created and available to you, but for batch jobs we need to import <em>SparkContext</em> and instantiate the <em>sc</em> object ourselves.</p>
+
+<p>And here&#39;s how we run it from the UNIX command line on the master node</p>
+
+<pre><code class="python">spark-submit piCalc.py 100000000 1000
+</code></pre>
+
+<!--
+# pyspark piCalc.py `cat /root/spark-ec2/cluster-url` 100000000 1000
+-->
+
+<h1>3) Model fitting with Spark</h1>
+
+<h2>3.1) Regression example with sufficient statistics</h2>
+
+<p>Suppose we wanted to run a regression with very many observations, \(n\), but relatively few predictors, \(p\). For our purposes here, let&#39;s assume \(p < 5000\) so that \(X^\top X\) takes up at most about 200 Mb. In this case we can compute the sufficient statistics, \(X^\top X\)  and \(X^\top Y\) using MapReduce and return them to the master for the final calculation.</p>
+
+<p>The basic calculation we are doing is \(\sum_{i=1}^n x_i x_i^\top\) and \(\sum_{i=1}^n x_i y_i\).</p>
+
+<pre><code class="python">import numpy as np
+from operator import add
+
+def screen(vals):
+    vals = vals.split(&#39;,&#39;)
+    return(vals[0] != &#39;Year&#39; and vals[14] != &#39;NA&#39; and vals[18] != &#39;NA&#39; 
+           and vals[3] != &#39;NA&#39; and
+           float(vals[14]) &lt; 720 and float(vals[14]) &gt; (-30) )
+
+lines = sc.textFile(&#39;/data/airline&#39;).filter(screen).repartition(192).cache()
+
+P = 8
+
+def crossprod(line):
+    vals = line.split(&#39;,&#39;)
+    y = float(vals[14])
+    dist = float(vals[18])
+    dayOfWeek = int(vals[3])
+    xVec = np.array([0.0] * P)
+    xVec[0] = 1.0
+    xVec[1] = float(dist)/1000
+    if dayOfWeek &gt; 1:
+        xVec[dayOfWeek] = 1.0
+    xtx = np.outer(xVec, xVec)
+    xty = xVec * y
+    return(np.c_[xtx, xty])
+
+suffStats = lines.map(crossprod).reduce(add)
+mles = np.linalg.solve(suffStats[0:P,0:P], suffStats[0:P,P])
+# array([ 6.366239  ,  0.76375807, -0.69956913,  0.39282445,  2.22473943,
+#        2.88670704, -2.42725064, -0.13621746])
+
+</code></pre>
+
+<h3>More efficient calculation using <code>mapPartitions()</code></h3>
+
+<p>That calculation of the sufficient statistics applied the linear algebra row by row. For the full airline dataset it took about 11 minutes. A more efficient alternative is to put all the data for a given partition into a matrix and do the linear algebra on the matrix. The code below takes about 2.5 minutes.</p>
+
+<p>Here we use <code>mapPartitions()</code> to apply a map to an entire partition - the <code>readPointBatch()</code> function iterates through the observations in the partition and constructs the \(X\) matrix before then doing the crossproduct.</p>
+
+<p>In contrast to the approach above, our reduction is now done over the \(K\) matrices, one per partition: \(\sum_{k=1}^K X_k^\top X_k\) and \(\sum_{k=1}^K X_k^\top y_k\).</p>
+
+<pre><code class="python">def readPointBatch(iterator):
+    strs = list(iterator)
+    matrix = np.zeros((len(strs), P+1))
+    for i in xrange(len(strs)):
+        vals = strs[i].split(&#39;,&#39;)
+        dist = float(vals[18])
+        dayOfWeek = int(vals[3])
+        xVec = np.array([0.0] * (P+1))
+        xVec[8] = float(vals[14]) # y
+        xVec[0] = 1.0  # int
+        xVec[1] = float(dist) / 1000
+        if(dayOfWeek &gt; 1):
+            xVec[dayOfWeek] = 1.0
+        matrix[i] = xVec
+    return [matrix.T.dot(matrix)]
+
+suffStats2 = lines.mapPartitions(readPointBatch).reduce(add)
+mles = np.linalg.solve(suffStats2[0:P,0:P], suffStats2[0:P,P])
+</code></pre>
+
+<p>It&#39;s not entirely clear to me why I needed to return a list with a single matrix from <code>readPointBatch()</code> as opposed to simply returning the matrix, but I expect it&#39;s just that PySpark needs each element of the RDD to be a list (or perhaps a tuple instead). </p>
+
+<h2>3.2) Coordinate descent for linear regression</h2>
+
+<p>The strategy above makes a lot of sense but breaks down as \(P\) gets large. We might consider coordinate descent, iterating through the individual regression coefficients. Of course this would probably be quite slow for large \(P\), but it&#39;s worthwhile to illustrate and sets the stage for our use of coordinate descent for lasso problems in the next section.</p>
+
+<p>For linear regression, the optimization for a single coefficient, holding the others constant, can be done in closed form: \(\hat{\beta}_{k} = \frac{\sum_{i=1}^n r_i y_i} {\sum_{i=1}^n x_{k,i}^2 }\) where \(r_i = y_i - \sum_{j \ne k} x_{j,i}\beta_j\).</p>
+
+<p>We&#39;ll precompute the denominator values in a MapReduce step. Our coordinate descent is then an iterative procedure with an inner loop that loops over the coefficients. For simplicity below I just do a fixed number of iterations, but in reality of course we would want a reasonable stopping criterion for the optimization.</p>
+
+<p>Note that for efficiency we&#39;ll again use the <code>mapPartitions()</code> version of this algorithm.</p>
+
+<pre><code class="python">P=8
+
+def readPointBatch(iterator):
+    strs = list(iterator)
+    matrix = np.zeros((len(strs), P+1))
+    print(len(strs))
+    for i in xrange(len(strs)):
+        vals = strs[i].split(&#39;,&#39;)
+        dist = float(vals[18])
+        dayOfWeek = int(vals[3])
+        xVec = np.array([0.0] * (P+1))
+        xVec[8] = float(vals[14]) # y
+        xVec[0] = 1.0  # int
+        xVec[1] = float(dist) / 1000
+        if(dayOfWeek &gt; 1):
+            xVec[dayOfWeek] = 1.0
+        matrix[i] = xVec
+    return [matrix]
+
+# set up the partitions with the submatrices
+batches = lines.mapPartitions(readPointBatch).cache()
+
+def denomSumSqBatch(mat):
+# compute denominator of update: sum of squared predictor
+    return((mat*mat).sum(axis=0))
+
+def getNumBatch(mat):
+# compute numerator of update: covariance of residual and predictor
+    beta[p] = 0
+    sumXb = mat[:, 0:P].dot(beta)
+    return(sum((mat[:,P] - sumXb)*mat[:,p]))
+
+# compute denominator of update 
+sumx2 = batches.map(denomSumSqBatch).reduce(add)
+
+# initialize coefficient values
+beta = np.array([0.0] * P)
+p = 0
+oldBeta = beta.copy()
+it = 0
+
+# finally.... do the optimization!
+
+#while crit &gt; tol and its &lt; maxIts:
+for it in range(1,100):
+    for p in xrange(P):
+        # distribute current beta and current coordinate
+        sumNum = batches.map(getNumBatch).reduce(add)
+        # update coordinate:
+        beta[p] = sumNum / sumx2[p]   
+    crit = sum(abs(beta - oldBeta))
+    oldBeta = beta.copy()
+    # interim reporting of estimates:
+    print(&quot;-&quot;*100)
+    print(beta)
+    print(crit)
+    print(&quot;-&quot;*100)
+
+print beta
+# after 4 iterations
+#[ 7.0987348   0.57795465 -1.30359727 -0.21110881  1.6211203   2.28315019
+# -3.02584311 -0.73731912]
+# after 100 iterations
+#[ 6.36623919  0.76375807 -0.69956932  0.39282426  2.22473924  2.88670685
+# -2.42725082 -0.13621764]
+</code></pre>
+
+<p>The parameters haven&#39;t converged fully after four iterations, but are equal to the MLE by 100 iterations (I didn&#39;t check carefully to see where convergence had been reached, so 100 iterations may be serious overkill).</p>
+
+<p>Each update of a coordinate takes about a 7 seconds.</p>
+
+<h2>3.3) Lasso via coordinate descent</h2>
+
+<p>A standard approach to fitting the Lasso is coordinate descent, as done in R&#39;s <em>glmnet</em> package, documented here in <a href="http://www.jstatsoft.org/v33/i01">Friedman et al.&#39;s well-known paper</a> (1700 citations according to Google scholar!) on computation for penalized GLMs.</p>
+
+<p>To test out my code, I&#39;m going to generate a large simulated dataset, with 10 non-zero coefficients of varying size and 90 zero coefficients. The individual coefficient updates are similar to the coordinate descent for linear regression, involving covariances between residuals and predictor, but with thresholding. For the example here, I just do this with a single value of the penalty parameter, \(\lambda\), but one could readily extend this to compute the solution path across different values of \(\lambda\), using the idea of warm starts, in which the optimization for the next value of the penalty starts at the estimates found for the current value of the penalty. </p>
+
+<p>First I&#39;ll generate some simulated data with known coefficients. In this case the code is set up to either generate independent predictors or autocorrelated predictors, depending on the value of <em>autocorr</em>.</p>
+
+<pre><code class="python">import numpy as np
+from operator import add
+
+n = 10000000
+P = 100
+nNonZero = 10
+
+betaTrue = [-2, -1.5, -1.0, -0.5, -0.3, -0.1, 0.3, 0.5, 1.0, 1.5]
+betaTrue = np.append(betaTrue, np.zeros(P-nNonZero))
+
+# create dataset as RDD
+
+# allow generation of autocorrelated X&#39;s to make optimiz&#39;n harder
+autocorr = 1
+rho = 0.7
+
+def simData(it):
+    np.random.seed(it)
+    x = np.random.normal(size = P)
+    if autocorr == 1:
+        for ind in xrange(P-1):
+            x[ind+1] = rho*x[ind] + x[ind+1]
+    y = sum(x*betaTrue) + np.random.normal(size = 1)
+    return(np.append(x, y))
+
+data = sc.parallelize(xrange(n)).repartition(96).map(simData)
+</code></pre>
+
+<p>As with the regression, let&#39;s set up each batch to have all of its data as a single matrix.</p>
+
+<pre><code class="python">def readPointBatch(iterator):
+    vals = list(iterator)
+    matrix = np.zeros((len(vals), P+1))
+    for i in xrange(len(vals)):
+        matrix[i] = vals[i]
+    return [matrix]
+
+batchesLasso = data.mapPartitions(readPointBatch)
+</code></pre>
+
+<p>Now I&#39;ll standardize the predictors so we can directly implement the equations of the Friedman et al. paper.</p>
+
+<pre><code class="python">def getSums(mat):
+    return mat.sum(axis = 0)
+
+colMeans = (batchesLasso.map(getSums).reduce(add) / n)[0:P]
+
+def stdizeMean(mat):
+    mat[:, 0:P] = mat[:, 0:P] - colMeans
+    return mat
+
+batchesLasso = batchesLasso.map(stdizeMean)
+
+def getSumSqs(mat):
+    return (mat*mat).sum(axis = 0)
+
+colSds = (pow(batchesLasso.map(getSumSqs).reduce(add) / n, 0.5))[0:P]
+
+def stdizeSd(mat):
+    mat[:, 0:P] = mat[:, 0:P] / colSds[0:P]
+    return mat
+
+batchesLasso = batchesLasso.map(stdizeSd).cache()
+
+</code></pre>
+
+<p>Now we&#39;ll implement the basic <em>naive algorithm</em> from the Friedman et al. paper. </p>
+
+<pre><code class="python">eps = 0.01
+alpha = 1 - eps  # alpha = 1 is lasso penalty, but with a slight numerical modification
+lamb = 0.5   # value of penalty parameter
+
+def Sfun(z, gamma):
+    if gamma &gt;= abs(z):
+        return(0)
+    if z &gt; 0:
+        return(z - gamma)
+    return(z + gamma)
+
+def getNumBatch(mat):
+    if nonZeros == None:
+        sumXb = 0
+    else:
+        # poor man&#39;s sparse implementation
+        sumXb = mat[:, nonZeros].dot(beta[nonZeros])
+    return(sum((mat[:,P] - sumXb)*mat[:,p]))
+
+
+beta = np.array([0.0] * P)
+nonZeros = None
+p = 0
+
+oldBeta = beta.copy()
+
+it = 0
+
+nIts = 6
+storeVals = np.zeros((nIts, P+1))
+
+for it in range(0,nIts):
+    for p in xrange(P):
+        # get numerator as product of residual and X for coordinate
+        sumNum = batchesLasso.map(getNumBatch).reduce(add)
+        beta[p] = Sfun(sumNum/n + beta[p], lamb*alpha) / (1 + lamb*eps)
+        if beta[p] != 0:
+            if nonZeros == None:
+                nonZeros = np.array([p])
+            elif sum(p == nonZeros) == 0:
+                nonZeros = np.append(nonZeros, p)
+                nonZeros.sort()
+        print(&quot;Updated var &quot; + str(p) + &quot; in iteration &quot;, str(it), &quot;.&quot;)
+    crit = sum(abs(beta - oldBeta))
+    storeVals[it, 0] = crit
+    storeVals[it, 1:(P+1)] = beta
+    oldBeta = beta.copy()
+    print(&quot;-&quot;*100)
+    print(beta)
+    print(crit)
+    print(&quot;-&quot;*100)
+#(&#39;Updated var 99 in iteration &#39;, &#39;5&#39;, &#39;.&#39;)
+#----------------------------------------------------------------------------------------------------
+#[-1.68283553 -1.72371224 -1.22416959 -0.45692377  0.          0.          0.
+#  0.32505124  1.3951588   1.77561668  0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.          0.          0.          0.          0.          0.
+#  0.          0.        ]
+#0.18567818344
+#----------------------------------------------------------------------------------------------------
+
+</code></pre>
+
+<p>After 5 iterations, the Lasso seems to be getting close to convergence (the sum of the absolute difference in the coefficients is 0.19). Each update of a coefficient takes about 3 seconds and a single full iteration about 6 minutes.</p>
+
+<p>As noted, I implemented the <em>naive algorithm</em>. The <em>covariance updating algorithm</em> also presented in Friedman et al. makes use of the sparsity of the coefficient vector to achieve computational speedup.</p>
+
+<h2>3.4) Linear regression via gradient descent</h2>
+
+<p>The coordinate descent algorithm for linear regression would be slow when there are many predictors as we are doing iterations in Spark over the coordinates. It would be faster to update all the coefficients at once and have the &ldquo;iteration&rdquo; over the coefficients be done within Python in the computation of the gradient (i.e., have the for loop across predictors calculate the gradient vector in Python within a partition). </p>
+
+<p>Here&#39;s gradient descent in Spark. Note that as is general for descent methods, we could step too far and the objective function might increase, particularly when we are not using the second derivatives to guide our step sizes. I haven&#39;t put in any checking here to ensure that our steps always go downhill, but I do provide a function to evaluate the objective function &ndash; this could be used to make the algorithm more sophisticated.</p>
+
+<p>As above with coordinate descent, we&#39;ll use the batches RDD that has the data in one matrix per partition.</p>
+
+<pre><code># step size (somewhat arbitrary here)
+P=8
+
+alpha = .4
+
+n = lines.count()
+
+def sumVals(mat):
+    return(sum(mat[:,P]))
+
+beta = np.array([0.0] * P)
+
+# initialize the intercept at empirical mean
+beta[0] = batches.map(sumVals).reduce(add) / n
+oldBeta = beta.copy()
+
+def getGradBatch(mat):
+# gradient function
+    sumXb = mat[:, 0:P].dot(beta)
+    return( ((sumXb - mat[:,P])*((mat[:, 0:P]).T)).sum(1) )
+
+def obj(mat):
+# objective function evaluation
+    return ( (pow(mat[:,P] - mat[:, 0:P].dot(beta), 2)).sum() ) 
+
+objValue = batches.map(obj).reduce(add)
+
+nIts = 300
+
+storeVals = np.zeros((nIts, P+2))
+
+# for simplicity do a fixed number of iterations
+for it in range(1,nIts):
+    gradVec = batches.map(getGradBatch).reduce(add)
+    # update coefficients via simple gradient descent
+    beta = beta - alpha * gradVec / n
+    crit = sum(abs(beta - oldBeta))
+    objValue = batches.map(obj).reduce(add)
+    oldBeta = beta.copy()
+    storeVals[it, 0] = pow(objValue/n,0.5)
+    storeVals[it, 1] = crit
+    storeVals[it, 2:(P+2)] = beta
+    print(&quot;-&quot;*100)
+    print(it)
+    print(beta)
+    print(crit)
+    print(pow(objValue/n,0.5))
+    print(&quot;-&quot;*100)
+# ....
+# 99
+#[ 6.5580312   0.75471562 -0.91028266  0.17939929  2.00668012  2.66706259
+# -2.62962892 -0.34925791]
+#0.011090628482
+#29.837622418
+</code></pre>
+
+<p>Each of the gradient calculation and objective function calculation take about 5 seconds per iteration. With \(p=100\), the whole thing takes a while</p>
+
+<p>It takes a while in terms of number of iterations, but when I ran it for another 300 iterations it was getting fairly close to the MLE (plus/minus .05 for all the coefficients). And that was without any tuning of the step size or checking for steps that go too far (though I don&#39;t think any of the steps resulted in an increase in the objective function).</p>
+
+<h2>3.5) Stochastic gradient descent and MLlib</h2>
+
+<p><a href="http://spark.apache.org/docs/latest/mllib-guide.html">MLlib</a> is the machine learning library for Spark, which implements a number of standard statistical/machine learning models/methods. We won&#39;t go into it here, but since the goal of MLlib is to provide ready-to-go functions to apply to datasets, it won&#39;t be hard for you to try it out given all of what we&#39;ve seen here.</p>
+
+<p>One standard method in fitting large datasets is stochastic gradient descent, which involves choosing a random subset of the observations to use to compute the gradient at each update. MLlib relies heavily on SGD and the Spark documentation provides details.</p>
+
+<h2>3.6 Uncertainty</h2>
+
+<p>I&#39;d have my Statistics PhD revoked if I didn&#39;t say anything about uncertainty estimates, beyond simply getting estimates. For small \(p\), one can do the usual computation of regression and GLMs standard errors/covariances. For large \(p\), my understanding is that this is a hard problem, and I haven&#39;t had a chance to dig into the literature to figure out the state of the art.</p>
+
+<h1>4) Final thoughts</h1>
+
+<h2>4.1) Running Spark serially on your own machine</h2>
+
+<p>One should be able to test Spark readily on your own machine with the workers all operating on your single machine rather than on the nodes of a cluster. So far, based on the instructions above, you have simply unzipped the Spark tarball and not actually installed the software. To install the software, try downloading the pre-built binary at the <a href="http://spark.apache.org/downloads.html">Spark downloads page</a>.  This will allow you to use Spark for simulation. To access data on disk, you&#39;ll want to read data from the local disk, rather than HDFS, into Spark. (Otherwise, you&#39;d need to have Hadoop installed with the HDFS set up and with only a single node there&#39;s no obvious purpose to this.) So in your <code>textFile()</code> invocation, just refer to the local path on the machine, e.g., <code>sc.textFile(&quot;/path/to/data.txt&quot;)</code>.</p>
+
+<h2>4.2) Using a fast BLAS</h2>
+
+<p>As is generally the case when using Python or R, if you&#39;re doing a lot of linear algebra, the speed of your code may be driven by the speed of the BLAS that Python or R is linked to. So if your Spark code does a lot of linear algebra, you probably want to link Python to a fast BLAS such as openBLAS.  For more information, email <a href="mailto:consult@stat.berkeley.edu">consult@stat.berkeley.edu</a> or <a href="mailto:consult@econ.berkeley.edu">consult@econ.berkeley.edu</a>.</p>
+
+<h2>4.3) Additional features of Spark</h2>
+
+<p>To use Spark with iPython, see <a href="http://blog.cloudera.com/blog/2014/08/how-to-use-ipython-notebook-with-apache-spark/">this post</a>.</p>
+
+<p><em>Spark SQL</em> allows you to do SQL queries on RDDs. </p>
+
+<p><em>Spark Streaming</em> allows you to work with data arriving in an on-line manner. </p>
+
+<p><em>SparkR</em> provides an R interface. It&#39;s in available on <a href="http://amplab-extras.github.io/SparkR-pkg/">Github</a>. The Spark developers tell me it&#39;s not on the main Spark webpage as it&#39;s not part of Apache but that it has all the main features of PySpark and is under active development. There is a mailing list <a href="mailto:sparkr-dev@googlegroups.com">sparkr-dev@googlegroups.com</a> and a JIRA, <a href="https://sparkr.atlassian.net/browse/SPARKR/">https://sparkr.atlassian.net/browse/SPARKR/</a>. I have some shell code that will install SparkR on an AWS EC2 cluster and some demo code for using SparkR.  However the code is still under construction and I&#39;ve run into some issues that I&#39;ve been talking with the SparkR developers about. But let me know if you&#39;d like the code.</p>
+
+<h2>4.4) Alternatives to Spark</h2>
+
+<p>Many &ldquo;big data&rdquo; problems will fit on disk (and sometimes even in memory on machines with a lot of memory) on a single machine. If so, you may be better off doing the work on a single machine, potentially parallelizing calculations across multiple cores on that machine. Here are some of the tools that are useful for dealing with large datasets.</p>
+
+<ul>
+<li><p>SQL for serial on-disk processing (e.g., from R or Python)</p></li>
+<li><p>SAS for serial on-disk data processing</p></li>
+<li><p><em>ff</em> or <em>bigmatrix</em> packages in R for serial on-disk data processing (and <em>biglm</em> for fitting large linear models and GLMs)</p></li>
+<li><p><em>data.table</em> package in R for serial in-memory processing (this is fast if things fit in memory)</p></li>
+<li><p><em>pbd</em> package in R for distributed computation, particularly linear algebra and distributed matrices</p></li>
+<li><p><em>numpy</em> provides memory-mapped files via <a href="http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html"><em>numpy.memmap()</em></a></p></li>
+</ul>
+
+<!--
+I think the thing you are asking about it called memory-mapping in Python.
+I've used this functionality in NumPy:
+http://docs.scipy.org/doc/numpy/reference/generated/numpy.memmap.html
+But it is also available (although I haven't used this) in standard Python:
+https://docs.python.org/2/library/mmap.html
+-->
+
+<ul>
+<li><p>manual coding to process data in batches from disk in any language</p></li>
+<li><p>serial processing of files using UNIX tools such as <em>sed</em>, <em>grep</em>, <em>cut</em>, etc.</p></li>
+<li><p>up-coming updates to LAPACK, ScaLAPACK for linear algebra on distributed memory clusters and on GPUs</p></li>
+</ul>
+
+<h2>4.5) More resources</h2>
+
+<ul>
+<li>Most of this workshop is based on the <a href="http://spark.apache.org/docs/latest/programming-guide.html">Spark programming guide</a>.</li>
+<li><a href="http://databricks.com/spark-training-resources">Here are some online resources from databricks</a></li>
+<li>AMPLab runs the <a href="http://ampcamp.berkeley.edu/">AmpCamp</a>. </li>
+</ul>
+
+<h1>5) Homework</h1>
+
+<p>0) Try to run the demo code given in this document yourself. Try some small tweaks and play around some.</p>
+
+<p>1) Suppose we wanted to find the number of departing flights from each airport and add this as a column to our RDD, matched of course to the departure airport for each flight. Implement this using Spark. Essentially, of course, you&#39;re doing a manual database join. One could then, for example, add the log of the number of flights as a predictor in our regression modeling of flight delays.</p>
+
+<p>2) Consider logistic regression. Fit a logistic regression model for the probability that a departure delay
+is greater than 30 minutes. You&#39;re welcome to use whatever predictors you like, but you might just use
+the ones I&#39;ve used above (distance and day of week). Work out the code to implement logistic regression where at each 
+iteration you solve a least squares problem in closed form using the working weights and working observations of the usual IWLS/IRLS algorithm.</p>
+
+</body>
+
+</html>
