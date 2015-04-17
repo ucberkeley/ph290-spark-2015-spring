@@ -1,6 +1,6 @@
 These instructions are intended for use on a Mac or Linux machine. On Windows, you may have to tweak things and will need access to the command line. 
 
-0) As noted in (7) below, it's important that you delete your cluster when you're not actively using it. Don't leave it running overnight or while you go off for a few hours, as you'll use up the credits we have for the workshop.
+0) As noted in (7) below, it's important that you delete your cluster when you're not actively using it. Don't leave it running overnight or you'll use up your AWS credits.
 
 1) To download Spark, go to https://spark.apache.org/downloads.html, choose 
 * 1.3.0
