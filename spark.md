@@ -84,11 +84,11 @@ First let's launch an EC2 cluster. We can choose the number of slave nodes. You'
 
 
 ```bash
-CLUSTER_SIZE=12
+CLUSTER_SIZE=6
 SPARK_VERSION=1.3.0
 REGION=us-west-2
-SSH_KEY_NAME=FILL_IN_NAME_OF_YOUR_SSH_KEY   # e.g., <your_aws_username>@berkeley.edu:spark-workshop-2014
-SSH_KEY_FILENAME=FILL_IN_NAME_OF_YOUR_SSH_KEY_FILENAME  # e.g., spark-workshop-2014-ssh_key.pem
+SSH_KEY_NAME=FILL_IN_NAME_OF_YOUR_SSH_KEY   # e.g., id_rsa
+SSH_KEY_FILENAME=FILL_IN_NAME_OF_YOUR_SSH_KEY_FILENAME  # e.g., id_rsa
 export AWS_ACCESS_KEY_ID=FILL_IN_YOUR_ACCESS_KEY
 export AWS_SECRET_ACCESS_KEY=FILL_IN_YOUR_SECRET_KEY
 YOUR_NAME=SOME_UNIQUE_NAME_FOR_YOUR_CLUSTER
@@ -96,17 +96,20 @@ cd /usr/local/linux/spark/ec2
 ./spark-ec2 -k ${SSH_KEY_NAME} -i ~/.ssh/${SSH_KEY_FILENAME} --region=${REGION} -s ${CLUSTER_SIZE} -v ${SPARK_VERSION} launch sparkvm-${YOUR_NAME}
 ```
 
-You'll need to wait for a few minutes (in particular at least the number of seconds indicated above in the WAIT_TIME variable). Look carefully for error messages as sometimes the startup of the nodes and installation of the Spark software does not go smoothly. If all goes well, the end of the messages printed to the screen should look like this:
+You'll need to wait for a few minutes. Look carefully for error messages as sometimes the startup of the nodes and installation of the Spark software does not go smoothly. If all goes well, the end of the messages printed to the screen should look like this:
 
 ```
 Setting up security groups...
-Searching for existing cluster sparkvm-${YOUR_NAME}...
+Setting up security groups...
+Creating security group sparkvm-paciorek-master
+Creating security group sparkvm-paciorek-slaves
+Searching for existing cluster sparkvm-paciorek...
 Spark AMI: ami-9a6e0daa
 Launching instances...
-Launched 12 slaves in us-west-2a, regid = r-af7e0ca4
-Launched master in us-west-2a, regid = r-ac7e0ca7
-Waiting for instances to start up...
-Waiting 300 more seconds...
+Launched 6 slaves in us-west-2c, regid = r-fad6cef5
+Launched master in us-west-2c, regid = r-64d7cf6b
+Waiting for AWS to propagate instance metadata...
+Waiting for cluster to enter 'ssh-ready' state.........
 
 [thousands of lines of information about software installation will scroll by ...]
 
@@ -131,7 +134,7 @@ Ganglia started at http://ec2-54-190-212-116.us-west-2.compute.amazonaws.com:508
 Done!
 ```
 
-Also note that I've had other glitches in starting up a Spark cluster. You should not get messages about files not found nor should the startup interrupt you to ask you to answer any questions. If either of these happen, something may have gone wrong. 
+Also note that I've had other glitches in starting up a Spark cluster. You should not get messages about files not found nor should the startup interrupt you to ask you to answer any questions. If either of these happen, something may have gone wrong. However, you are likely to see messages that indicate SSH connection errors while the startup script waits for the EC2 nodes to become available for SSH access.
 
 Note that when you want to shut down your cluster (and remember it will cost you money as long as it is running), do the following and make sure to answer 'y' when prompted.
 
@@ -167,6 +170,8 @@ Sometimes your connection might be interrupted and you'll lose your work, so you
 ```bash
 screen -x -RR
 ```
+
+If you get disconnected, simply login to the master node and type the command above and you'll be reconnected to your ongoing session. 
 
 Once on the master, the addresses of the slave nodes are given in `/root/ephemeral-hdfs/conf/slaves`. You can choose one of them and ssh to it using the address. Then tools such as `top` will allow you to see what is going on on the machine. 
 
@@ -1118,7 +1123,7 @@ To use Spark with iPython, see [this post](http://blog.cloudera.com/blog/2014/08
 
 *Spark Streaming* allows you to work with data arriving in an on-line manner. 
 
-*SparkR* provides an R interface. It's in available on [Github](http://amplab-extras.github.io/SparkR-pkg/). The Spark developers tell me it's not on the main Spark webpage as it's not part of Apache but that it has all the main features of PySpark and is under active development. There is a mailing list sparkr-dev@googlegroups.com and a JIRA, https://sparkr.atlassian.net/browse/SPARKR/. I have some shell code that will install SparkR on an AWS EC2 cluster and some demo code for using SparkR.  However the code is still under construction and I've run into some issues that I've been talking with the SparkR developers about. But let me know if you'd like the code.
+*SparkR* provides an R interface. It's under active development and is available on [Github](http://amplab-extras.github.io/SparkR-pkg/) and will be available soon as part of the Apache Spark project on the main Spark webpage. T There is a mailing list sparkr-dev@googlegroups.com and a JIRA, https://sparkr.atlassian.net/browse/SPARKR/. I have some shell code that will install SparkR on an AWS EC2 cluster and some demo code for using SparkR.  However the code is still under construction and I've run into some issues that I've been talking with the SparkR developers about. But let me know if you'd like the code.
 
 ## 4.4) Alternatives to Spark
 
